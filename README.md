@@ -1,15 +1,15 @@
 # 👗 Shop-the-Look: Visual Product Discovery System
 
-A visual product discovery pipeline that takes a Pinterest fashion scene image, detects fashion items within it, and retrieves the most visually similar products from a **28,094-item catalog** using **CLIP embeddings** and **FAISS similarity search** — with human-readable, attribute-level match explanations.
+A visual product discovery pipeline that takes a fashion scene image, detects individual garments within it, and retrieves the most visually similar products from a product catalog using **FashionCLIP embeddings** and **FAISS similarity search** — with human-readable, attribute-level match explanations.
 
 ---
 
 ## 📋 Overview
 
-Given a Pinterest fashion scene image (e.g., a lifestyle photo of someone wearing an outfit), this system:
+Given a fashion scene image (a lifestyle photo of someone wearing an outfit) — either selected from the validation set or **uploaded directly** — this system:
 
-1. **Detects** fashion items in the scene using YOLOS object detection
-2. **Embeds** each detected crop with CLIP ViT-B/32 (512-d, L2-normalized)
+1. **Detects** individual garments in the scene using a **YOLOS detector fine-tuned on Fashionpedia** (shirt, dress, pants, skirt, shoe, bag, etc.)
+2. **Embeds** each detected crop with **FashionCLIP** (CLIP ViT-B/32 fine-tuned on fashion data; 512-d, L2-normalized)
 3. **Searches** a pre-built FAISS index for the closest catalog products by cosine similarity
 4. **Classifies** each match as an **exact match** or **approximate match** using a data-driven threshold tuned on the validation set
 5. **Explains** each match with attribute-level comparisons (color, pattern, category, style) via CLIP zero-shot text scoring
@@ -21,14 +21,14 @@ The system handles both single-product and multi-product scenes (8 scenes in the
 ## 🏗️ System Architecture
 
 ```
-┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│ Scene Image │────▶│  YOLOS-tiny      │────▶│  Fashion Crops   │
-│ (Pinterest) │     │  Object Detection│     │  (person, bag…)  │
-└─────────────┘     └─────────────────┘     └────────┬─────────┘
+┌──────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│ Scene Image  │────▶│ YOLOS-Fashionpedia│───▶│ Garment Crops    │
+│ (hash/upload)│     │ Garment Detection │    │ (dress, bag, …)  │
+└──────────────┘     └──────────────────┘     └────────┬─────────┘
                                                      │
                                                      ▼
                                             ┌─────────────────┐
-                                            │  CLIP ViT-B/32  │
+                                            │  FashionCLIP     │
                                             │  Image Encoder   │
                                             │  → 512-d vector  │
                                             └────────┬─────────┘
@@ -37,7 +37,7 @@ The system handles both single-product and multi-product scenes (8 scenes in the
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │  Ranked Results │◀────│  FAISS          │◀────│  Cosine Sim.     │
 │  + Explanations │     │  IndexFlatIP    │     │  Query           │
-└─────────────────┘     │  (28,094 items) │     └─────────────────┘
+└─────────────────┘     │  (catalog index)│     └─────────────────┘
                         └─────────────────┘
 ```
 
@@ -129,6 +129,17 @@ python app.py
 
 > **💡 Tip:** Step 1 can alternatively be run via `colab_offline_job.ipynb` on **Google Colab with a GPU runtime**, which is the recommended approach for the initial index build. The notebook handles the same download → embed → index → attribute pipeline, with checkpointing every 500 items for crash recovery.
 
+> **⚙️ Catalog size:** `offline_indexer.py` has a `MAX_PRODUCTS` setting (top of `load_unique_product_ids`). It defaults to a 5,000-product subset for fast local indexing (~2 min) and always includes all validation products so evaluation stays fair. Set `MAX_PRODUCTS = None` to index the full 28,094-item catalog.
+
+### Interactive Demo
+
+The Gradio app (`app.py`) provides two ways to query:
+
+- **Select a scene** — pick from a searchable dropdown of the 321 validation scenes (or paste a signature hash). A live preview of the scene is shown before searching.
+- **Upload your own image** — upload any outfit/garment photo (or paste from clipboard); it runs through the same detection → embedding → search pipeline, skipping the Pinterest fetch.
+
+Both modes share a results gallery (detected crops + matched products) and attribute-level match explanations.
+
 ---
 
 ## 📊 Dataset
@@ -157,9 +168,14 @@ The **41 out-of-catalog products** cannot be retrieved by definition — for the
 
 ## 🧠 Key Design Decisions
 
-### Why CLIP ViT-B/32?
+### Why FashionCLIP + Fashionpedia detector?
 
-CLIP provides a **joint image-text embedding space** that is well-suited for fashion retrieval without task-specific fine-tuning. ViT-B/32 offers a good balance between accuracy and inference speed, producing compact 512-d embeddings. The shared text-image space also enables zero-shot attribute classification for the explainer — no additional model required.
+The system originally used generic **CLIP ViT-B/32** + **YOLOS-tiny (COCO)**, but COCO has no clothing classes — the detector could only find whole-person boxes, and a full-person crop matches poorly against clean single-product catalog photos. Switching to:
+
+- **YOLOS fine-tuned on Fashionpedia** — detects individual garments (shirt, dress, pants, skirt, shoe, bag, …), closing the lifestyle→catalog domain gap by cropping the actual item.
+- **FashionCLIP** — CLIP fine-tuned on ~800k fashion image-text pairs, producing embeddings far better separated for fashion retrieval.
+
+This combination delivered a **~3–4× improvement** across all retrieval metrics (see Results below). FashionCLIP retains the same 512-d joint image-text space, so zero-shot attribute classification for the explainer still works with no extra model.
 
 ### Why FAISS IndexFlatIP?
 
@@ -195,21 +211,38 @@ The system is evaluated on the 321 unique validation scenes using the following 
 
 **Out-of-catalog handling:** The 41 products not in the catalog are included in Recall/MRR denominators (they count as misses) but are excluded from Exact Match Rate, since exact retrieval is impossible by definition.
 
+### Measured Results
+
+Evaluated on all 321 validation scenes against a **5,000-product subset** (the local-testing default; all validation products included):
+
+| Metric | Original (CLIP ViT-B/32 + YOLOS-COCO) | Current (FashionCLIP + Fashionpedia) | Improvement |
+|--------|--------------------------------------:|-------------------------------------:|:-----------:|
+| Recall@1  | 0.0093 | **0.0218** | ~2.3× |
+| Recall@5  | 0.0156 | **0.0685** | ~4.4× |
+| Recall@10 | 0.0249 | **0.0935** | ~3.8× |
+| MRR       | 0.0129 | **0.0441** | ~3.4× |
+
+> These numbers are on an 18% catalog subset; indexing the full 28k catalog (`MAX_PRODUCTS = None`) raises the ceiling since more validation products become retrievable. Fashion *instance* retrieval against a large catalog is inherently hard — many results are correctly "similar" rather than the exact ground-truth item.
+
 ---
 
 ## ⚠️ Limitations
 
-### YOLOS Detection Granularity
+### Detection Granularity
 
-YOLOS-tiny is trained on COCO categories and detects **whole-person bounding boxes** rather than segmenting individual garments (shirt, pants, shoes). A "person" crop contains the full outfit as a single embedding, which reduces matching precision for multi-item outfits. When no fashion item is detected, the system falls back to using the **full scene image** as one crop.
+The Fashionpedia detector crops individual garments, but when nothing is detected the system falls back to using the **full scene image** as one crop. Scenes with heavy occlusion or unusual framing may yield noisy crops.
 
 ### Dead Pinterest URLs
 
 Pinterest CDN URLs are ephemeral — roughly 10–20% of product image URLs return 404 errors. These products are permanently lost from the index. The fetcher handles this gracefully (retries for transient errors, fast-fails on 404s), but it reduces effective catalog coverage.
 
-### No Fashion-Specific Fine-Tuning
+### Instance-Level Retrieval Ceiling
 
-CLIP ViT-B/32 is a general-purpose vision-language model. It has no specialized training on fashion attributes like fabric texture, garment cut, or brand-specific styles. This limits its ability to distinguish visually similar but functionally different items (e.g., a silk blouse vs. a polyester one).
+Even with FashionCLIP, retrieving the *exact* catalog instance from a large pool is hard: a lifestyle photo of an item differs from its clean studio shot in lighting, pose, and background. The system reliably finds the right *neighborhood* of products, but the exact ground-truth item is often ranked among other near-identical candidates rather than first.
+
+### Multi-Crop Score Pooling
+
+Scenes with many detected garments produce many candidate matches that are pooled and ranked by raw cosine score. A confident match for one garment can outrank the true product of another, which can suppress aggregate recall on busy scenes.
 
 ---
 
@@ -217,12 +250,12 @@ CLIP ViT-B/32 is a general-purpose vision-language model. It has no specialized 
 
 | Improvement | Impact |
 |-------------|--------|
-| **FashionCLIP** | Replace generic CLIP with [FashionCLIP](https://github.com/patrickjohncyh/fashion-clip), a CLIP model fine-tuned on fashion data — expected significant gains in retrieval accuracy |
-| **Instance Segmentation** | Replace YOLOS with a model like Grounded-SAM or Fashionpedia to segment individual garments instead of whole-person boxes |
+| **Full-catalog index** | Set `MAX_PRODUCTS = None` to index all 28,094 products — raises the retrieval ceiling since more validation products become available |
+| **Crop-aware ranking** | Replace raw-score pooling with per-crop normalization or round-robin interleaving so busy multi-garment scenes aren't dominated by one confident match |
 | **Cross-Encoder Re-ranking** | Add a second-stage re-ranker that jointly scores (scene crop, product image) pairs for more precise top-K ordering |
+| **Instance Segmentation** | Use SAM/Grounded-SAM to mask garments precisely, removing background from each crop before embedding |
 | **Catalog Metadata** | Incorporate product titles, descriptions, or category tags for hybrid text+vision retrieval |
 | **ANN Indexing** | Switch to FAISS IVF or HNSW if catalog grows beyond ~100K products, trading marginal accuracy for search speed |
-| **Active URL Monitoring** | Periodically re-check failed URLs and rebuild the index to recover products whose images become available again |
 
 ---
 
@@ -231,11 +264,11 @@ CLIP ViT-B/32 is a general-purpose vision-language model. It has no specialized 
 | Module | Responsibility |
 |--------|---------------|
 | `src/fetcher.py` | Image download with disk caching, retry logic, and parallel batch downloading (12 workers) |
-| `src/embedder.py` | CLIP ViT-B/32 image & text embedding with L2 normalization (512-d output) |
-| `src/detector.py` | YOLOS-tiny fashion item detection, filtering for COCO fashion labels, with full-scene fallback |
+| `src/embedder.py` | FashionCLIP image & text embedding with L2 normalization (512-d output) |
+| `src/detector.py` | YOLOS-Fashionpedia garment detection (46 fashion classes), with full-scene fallback |
 | `src/matcher.py` | FAISS similarity search + exact-match threshold classification |
 | `src/explainer.py` | Attribute-level explanations via CLIP zero-shot text scoring (color, pattern, category, style) |
-| `src/pipeline.py` | End-to-end orchestrator: fetch → detect → embed → match → explain |
+| `src/pipeline.py` | End-to-end orchestrator: `process_scene` (hash → fetch → …) and `process_image` (upload → …) → detect → embed → match → explain |
 
 ---
 
