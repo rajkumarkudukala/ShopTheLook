@@ -1,3 +1,14 @@
+---
+title: Shop The Look
+emoji: 👗
+colorFrom: pink
+colorTo: indigo
+sdk: gradio
+sdk_version: 5.9.1
+app_file: app.py
+pinned: false
+---
+
 # 👗 Shop-the-Look: Visual Product Discovery System
 
 A visual product discovery pipeline that takes a fashion scene image, detects individual garments within it, and retrieves the most visually similar products from a product catalog using **FashionCLIP embeddings** and **FAISS similarity search** — with human-readable, attribute-level match explanations.

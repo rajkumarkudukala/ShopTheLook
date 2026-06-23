@@ -11,6 +11,39 @@ import gradio as gr
 from src.pipeline import process_scene, process_image
 from src.fetcher import convert_to_url, fetch_image
 
+# --- Compatibility shim ---------------------------------------------------
+# Gradio 5.x's API-info builder crashes when a component JSON schema contains
+# a boolean (e.g. additionalProperties: true): gradio_client's get_type does
+# `if "const" in schema` which raises "argument of type 'bool' is not iterable".
+# This route is hit on every page load, so we guard get_type against non-dict
+# schemas. Harmless if the underlying bug is already fixed in the installed
+# gradio_client version.
+try:
+    import gradio_client.utils as _gcu
+
+    _orig_get_type = _gcu.get_type
+
+    def _safe_get_type(schema):
+        if not isinstance(schema, dict):
+            return "Any"
+        return _orig_get_type(schema)
+
+    _gcu.get_type = _safe_get_type
+
+    # The recursive schema->type converter raises APIInfoParseError on a
+    # boolean schema (e.g. additionalProperties: true). Short-circuit those.
+    _orig_j2p = _gcu._json_schema_to_python_type
+
+    def _safe_j2p(schema, defs=None):
+        if isinstance(schema, bool):
+            return "Any"
+        return _orig_j2p(schema, defs)
+
+    _gcu._json_schema_to_python_type = _safe_j2p
+except Exception:
+    pass
+# -------------------------------------------------------------------------
+
 # Load all unique validation scene signatures for the dropdown
 with open("data/validation.jsonl") as f:
     ALL_SCENES = sorted(set(
