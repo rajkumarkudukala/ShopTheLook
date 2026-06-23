@@ -1,0 +1,22 @@
+# Large generated / downloaded data — do not commit
+cache/
+artifacts/
+dataset.zip
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+
+# Diagnostic scripts (optional — remove if you want to keep them)
+test_self_match.py
+test_pipeline_trace.py
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp

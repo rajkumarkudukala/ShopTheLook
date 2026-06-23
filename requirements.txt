@@ -1,0 +1,11 @@
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.35.0
+ftfy
+Pillow>=10.0.0
+requests>=2.31.0
+faiss-cpu>=1.7.4
+numpy>=1.24.0
+pandas>=2.0.0
+tqdm>=4.65.0
+gradio>=4.0.0

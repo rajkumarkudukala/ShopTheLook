@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python test_self_match.py)",
+      "Bash(del /Q artifacts\\\\checkpoint_*.*)",
+      "Bash(del /Q artifacts\\\\catalog.index artifacts\\\\catalog_ids.json artifacts\\\\catalog_embeddings.npy artifacts\\\\catalog_attributes.json artifacts\\\\config.json)",
+      "Bash(del /Q artifacts\\\\catalog.index artifacts\\\\catalog_ids.json artifacts\\\\catalog_embeddings.npy artifacts\\\\catalog_attributes.json artifacts\\\\config.json artifacts\\\\failed_downloads.txt)"
+    ]
+  }
+}
