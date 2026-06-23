@@ -313,7 +313,6 @@ with gr.Blocks(title="Shop the Look") as demo:
     gallery = gr.Gallery(
         label="Detected Crops & Matched Products",
         columns=4,
-        height=420,
         object_fit="contain",
     )
     explanation = gr.Markdown(label="Match Details")
